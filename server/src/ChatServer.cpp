@@ -32,7 +32,7 @@ bool ChatServer::start() {
         return false;
     }
 
-    int opt = TRUE;
+    int opt = true;
     if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt)) < 0) {
         std::cerr << "Error setting socket options" << std::endl;
         CLOSE_SOCKET(serverSocket);

@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <cstring>
 #include <wmmintrin.h>
 
 #define AES256_KEYLEN   64
