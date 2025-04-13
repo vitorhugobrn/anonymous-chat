@@ -6,9 +6,11 @@
 #include <iostream>
 #include <thread>
 
-ChatServer::ChatServer(int port, const std::string &pin) 
-    : port(port), serverPin(pin), running(false), nextMessageId(1) {
-        serverKey = generateSHA256Bytes(pin.c_str(), pin.length());
+ChatServer::ChatServer(int port, const std::string &pin, int requiredClients) 
+    : port(port), serverPin(pin), running(false), nextMessageId(1), 
+    requiredClientsToStart(requiredClients), chatSessionActive(false)  
+{
+    serverKey = generateSHA256Bytes(pin.c_str(), pin.length());
 }
 
 ChatServer::~ChatServer() {
@@ -132,6 +134,7 @@ void ChatServer::handleClientAuth(int clientSocket) {
     }
 
     broadcastUserList();
+    checkAndActivateSession();
     handleClientMessages(clientSocket);
 }
 
@@ -156,11 +159,28 @@ void ChatServer::handleClientMessages(int clientSocket) {
     }
 
     CLOSE_SOCKET(clientSocket);
+    checkAndDeactivateSession();
     broadcastUserList();
 }
 
 void ChatServer::broadcastMessage(int senderSocket, const ChatMessage &msg) {
     std::lock_guard<std::mutex> lock(clientsMutex);
+
+    AES256 aesCtx;
+    AES256Init(&aesCtx, serverKey.data());
+
+    if (!chatSessionActive) {
+        std::string waitMessage = "SYSTEM:Waiting for more users to join.";
+        
+        ChatMessage waitMsg;
+        waitMsg.messageId = nextMessageId++;
+        
+        size_t waitEncryptedSize = AES256EncryptMessage(&aesCtx, waitMsg.data, waitMessage.c_str(), waitMessage.length());
+        waitMsg.messageLength = (waitMessage.length() << 16 | (waitEncryptedSize & 0xFFFF));
+        
+        send(senderSocket, (char *)&waitMsg, sizeof(waitMsg), 0);
+        return;
+    }
 
     for (const auto &client : clients) {
         if (client.first != senderSocket)
@@ -194,3 +214,53 @@ void ChatServer::broadcastUserList() {
         send(client.first, (char *)&msg, sizeof(msg), 0);
     }
 }
+
+void ChatServer::checkAndActivateSession() {
+    std::lock_guard<std::mutex> lock(clientsMutex);
+
+    if (chatSessionActive || clients.size() < requiredClientsToStart)
+        return;
+
+    chatSessionActive = true;
+
+    std::string startMessage = "SESSION_START:Chat session has started!";
+
+    ChatMessage msg;
+    msg.messageId = nextMessageId++;
+
+    AES256 aesCtx;
+    AES256Init(&aesCtx, serverKey.data());
+
+    size_t encryptedSize = AES256EncryptMessage(&aesCtx, msg.data, startMessage.c_str(), startMessage.length());
+    msg.messageLength = (startMessage.length() << 16 | (encryptedSize & 0xFFFF));
+
+    for (const auto &client : clients) {
+        send(client.first, (char *)&msg, sizeof(msg), 0);
+    }
+
+    std::cout << "Chat session activated with " << clients.size() << " clients" << std::endl;
+}
+
+void ChatServer::checkAndDeactivateSession() {
+    std::lock_guard<std::mutex> lock(clientsMutex);
+    
+    if (chatSessionActive && clients.size() < requiredClientsToStart) {
+        chatSessionActive = false;
+        
+        std::string interruptMessage = "SESSION_INTERRUPT:Chat session paused. Waiting for more users to join.";
+        
+        ChatMessage msg;
+        msg.messageId = nextMessageId++;
+
+        AES256 aesCtx;
+        AES256Init(&aesCtx, serverKey.data());
+
+        size_t encryptedSize = AES256EncryptMessage(&aesCtx, msg.data, interruptMessage.c_str(), interruptMessage.length());
+        msg.messageLength = (interruptMessage.length() << 16 | (encryptedSize & 0xFFFF));
+        
+        for (const auto &client : clients) {
+            send(client.first, (char *)&msg, sizeof(msg), 0);
+        }
+    }
+}
+

@@ -182,9 +182,18 @@ void ChatClient::receiveMessages() {
         
         std::string decryptedMessage(reinterpret_cast<char*>(decryptedData.data()), originalLength);
         
-        // Check if it's a user list update
+        // Check message type
         if (decryptedMessage.substr(0, 9) == "USERLIST:") {
             updateOnlineUsers(decryptedMessage.substr(9));
+        } else if (decryptedMessage.substr(0, 14) == "SESSION_START:") {
+            std::lock_guard<std::mutex> lock(chatMutex);
+            chatHistory.push_back({"Server", "Chat session has started! You can now send messages.", false, std::time(nullptr)});
+        } else if (decryptedMessage.substr(0, 18) == "SESSION_INTERRUPT:") {
+            std::lock_guard<std::mutex> lock(chatMutex);
+            chatHistory.push_back({"Server", "Chat session paused. Waiting for more users to join.", false, std::time(nullptr)});
+        } else if (decryptedMessage.substr(0, 7) == "SYSTEM:") {
+            std::lock_guard<std::mutex> lock(chatMutex);
+            chatHistory.push_back({"Server", decryptedMessage.substr(7), false, std::time(nullptr)});
         } else {
             std::time_t msgTime = std::time(nullptr);
             std::string sender = "Anonymous";
@@ -194,12 +203,6 @@ void ChatClient::receiveMessages() {
                 std::lock_guard<std::mutex> lock(chatMutex);
                 chatHistory.push_back({sender, messageText, false, msgTime});
             }
-            
-            // TODO: Remove
-            // Also print to console for debugging
-            std::cout << "\nMessage: " << decryptedMessage << std::endl;
-            std::cout << "You: ";
-            std::cout.flush();
         }
     }
 }
@@ -217,18 +220,7 @@ void ChatClient::updateOnlineUsers(const std::string& userListStr) {
         end = userListStr.find(',', start);
     }
     
-    // Add the last username
     if (start < userListStr.length()) {
         onlineUsers.push_back(userListStr.substr(start));
     }
-    
-    // Display online users
-    std::cout << "\nOnline users: ";
-    for (const auto& user : onlineUsers) {
-        std::cout << user << " ";
-    }
-    
-    std::cout << std::endl;
-    std::cout << "You: ";
-    std::cout.flush();
 }

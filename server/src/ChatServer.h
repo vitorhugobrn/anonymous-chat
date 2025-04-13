@@ -37,6 +37,8 @@ class ChatServer {
         int port;
         std::string serverPin;
         std::vector<uint8_t> serverKey;
+        int requiredClientsToStart;
+        bool chatSessionActive;
 
         std::mutex clientsMutex;
         std::map<int, std::string> clients; // socket fd -> nickname
@@ -45,6 +47,9 @@ class ChatServer {
 
         void acceptClients();
 
+        void checkAndActivateSession();
+        void checkAndDeactivateSession();
+
         void handleClientAuth(int clientSocket);
         void handleClientMessages(int clientSocket);
 
@@ -52,7 +57,7 @@ class ChatServer {
         void broadcastUserList();
 
     public:
-        ChatServer(int port, const std::string &pin);
+        ChatServer(int port, const std::string &pin, int requiredClients);
         ~ChatServer();
 
         bool start();

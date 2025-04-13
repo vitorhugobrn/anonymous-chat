@@ -157,6 +157,17 @@ void ChatGUI::drawLoginScreen() {
 
 void ChatGUI::drawChat() {
     if (!chatClient) return;
+
+    bool sessionActive = false;
+    for (auto msg : allMessages) {
+        if (msg.sender == "Server") {
+            if (msg.text.find("Chat session has started") != std::string::npos) {
+                sessionActive = true;
+            } else if (msg.text.find("Chat session paused") != std::string::npos) {
+                sessionActive = false;
+            }
+        }
+    }
     
     // Chat input text box
     Rectangle textboxRec = { 185, 555, 535, 35 };
@@ -325,5 +336,14 @@ void ChatGUI::drawChat() {
         }
     }
     
+    if (!sessionActive) {
+        Rectangle waitRect = { 185, 50, 535, 30 };
+        DrawRectangleRec(waitRect, ColorAlpha(RED, 0.2f));
+        DrawTextEx(
+            font, "Waiting for more users to join the session...", { waitRect.x + 10, waitRect.y + 5 },
+            fontSize, 1.5f, RED
+        );
+    }
+
     EndDrawing();
 }

@@ -3,15 +3,16 @@
 #include <iostream>
 
 int main(int argc, char *argv[]) {
-    if (argc < 3) {
-        std::cout << "Usage: <port> <pin>" << std::endl;
+    if (argc < 4) {
+        std::cout << "Usage: <port> <pin> <required_users>" << std::endl;
         return 1;
     }
 
     int port = std::stoi(argv[1]);
     std::string pin = argv[2];
+    int requiredUsers = std::stoi(argv[3]);
 
-    ChatServer server(port, pin);
+    ChatServer server(port, pin, requiredUsers);
     if (!server.start()) {
         std::cerr << "Failed to Start Server" << std::endl;
         return 1;
