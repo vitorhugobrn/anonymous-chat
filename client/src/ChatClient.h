@@ -10,9 +10,18 @@
 #include "../../shared/aes256.h"
 #include "../../shared/sha256.h"
 
+enum class MessageOpcode : uint8_t {
+    CHAT_MESSAGE = 0,
+    SYSTEM_MESSAGE,
+    USER_LIST,
+    SESSION_START,
+    SESSION_INTERRUPT
+};
+
 struct ChatMessage {
     uint32_t messageId;       // Unique message identifier
     uint32_t messageLength;   // Length of the encrypted message
+    MessageOpcode opcode;
     uint8_t data[1024];       // Encrypted message data
 };
 

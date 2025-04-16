@@ -129,6 +129,7 @@ bool ChatClient::sendMessage(const std::string& message) {
     ChatMessage msg;
     static uint32_t messageId = 1;
     msg.messageId = messageId++;
+    msg.opcode = MessageOpcode::CHAT_MESSAGE;
     
     if (message.length() > sizeof(msg.data) / 2) {
         std::cerr << "Message too long!" << std::endl;
@@ -182,26 +183,37 @@ void ChatClient::receiveMessages() {
         
         std::string decryptedMessage(reinterpret_cast<char*>(decryptedData.data()), originalLength);
         
-        // Check message type
-        if (decryptedMessage.substr(0, 9) == "USERLIST:") {
-            updateOnlineUsers(decryptedMessage.substr(9));
-        } else if (decryptedMessage.substr(0, 14) == "SESSION_START:") {
-            std::lock_guard<std::mutex> lock(chatMutex);
-            chatHistory.push_back({"Server", "Chat session has started! You can now send messages.", false, std::time(nullptr)});
-        } else if (decryptedMessage.substr(0, 18) == "SESSION_INTERRUPT:") {
-            std::lock_guard<std::mutex> lock(chatMutex);
-            chatHistory.push_back({"Server", "Chat session paused. Waiting for more users to join.", false, std::time(nullptr)});
-        } else if (decryptedMessage.substr(0, 7) == "SYSTEM:") {
-            std::lock_guard<std::mutex> lock(chatMutex);
-            chatHistory.push_back({"Server", decryptedMessage.substr(7), false, std::time(nullptr)});
-        } else {
-            std::time_t msgTime = std::time(nullptr);
-            std::string sender = "Anonymous";
-            std::string messageText = decryptedMessage;
-            
-            { // Store the message in chat history
+        switch (msg.opcode) {
+            case MessageOpcode::USER_LIST:
+                updateOnlineUsers(decryptedMessage);
+                break;
+                
+            case MessageOpcode::SESSION_START: {
                 std::lock_guard<std::mutex> lock(chatMutex);
-                chatHistory.push_back({sender, messageText, false, msgTime});
+                chatHistory.push_back({ "Server", "Chat session has started! You can now send messages.", false, std::time(nullptr) });
+                break;
+            }
+                
+            case MessageOpcode::SESSION_INTERRUPT: {
+                std::lock_guard<std::mutex> lock(chatMutex);
+                chatHistory.push_back({ "Server", "Chat session paused. Waiting for more users to join.", false, std::time(nullptr) });
+                break;
+            }
+                
+            case MessageOpcode::SYSTEM_MESSAGE: {
+                std::lock_guard<std::mutex> lock(chatMutex);
+                chatHistory.push_back({"Server", decryptedMessage, false, std::time(nullptr)});
+                break;
+            }
+                
+            case MessageOpcode::CHAT_MESSAGE:
+            default: {
+                std::string sender = "Anonymous";
+                std::string messageText = decryptedMessage;
+                
+                std::lock_guard<std::mutex> lock(chatMutex);
+                chatHistory.push_back({ sender, messageText, false, std::time(nullptr) });
+                break;
             }
         }
     }

@@ -24,9 +24,18 @@
     #define SOCKET_ERROR_VAL -1
 #endif
 
+enum class MessageOpcode : uint8_t {
+    CHAT_MESSAGE = 0,
+    SYSTEM_MESSAGE,
+    USER_LIST,
+    SESSION_START,
+    SESSION_INTERRUPT
+};
+
 struct ChatMessage {
     uint32_t messageId;
     uint32_t messageLength;
+    MessageOpcode opcode;
     uint8_t data[1024];
 };
 

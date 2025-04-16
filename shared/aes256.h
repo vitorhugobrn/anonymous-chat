@@ -2,14 +2,18 @@
 
 #include <vector>
 #include <cstdint>
-#include <cstring>
 #include <wmmintrin.h>
+
+#include <openssl/rand.h>
+#include <cstring>
 
 #define AES256_KEYLEN   64
 #define AES256_BLOCKLEN 16
+#define AES256_IV_SIZE  16
 
 struct AES256 {
     __m128i roundKeys[28];
+    uint8_t iv[AES256_IV_SIZE];
 };
 
 #define AES256_KEYROUND_EVEN(i, rcon)                             \
@@ -34,6 +38,8 @@ static void AES256Init(struct AES256 *ctx, const void *k) {
     __m128i key, gen;
     ctx->roundKeys[0] = _mm_loadu_si128((const __m128i *)(k));
     ctx->roundKeys[1] = _mm_loadu_si128((const __m128i *)(k) + 1);
+
+    memset(ctx->iv, 0, AES256_IV_SIZE);
 
     AES256_KEYROUND_EVEN(2, 0x01);
     AES256_KEYROUND_ODD(3);
@@ -64,8 +70,19 @@ static void AES256Init(struct AES256 *ctx, const void *k) {
     ctx->roundKeys[27] = _mm_aesimc_si128(ctx->roundKeys[ 1]);
 }
 
-static void AES256Encrypt(struct AES256 *ctx, void *outputBlock, const void *inputBlock) {
+static void AES256SetIV(struct AES256 *ctx, const uint8_t *iv) {
+    memcpy(ctx->iv, iv, AES256_IV_SIZE);
+}
+
+static void AES256GenerateIV(struct AES256 *ctx) {
+    RAND_bytes(ctx->iv, AES256_IV_SIZE);
+}
+
+static void AES256EncryptCBC(struct AES256 *ctx, void *outputBlock, const void *inputBlock) {
     __m128i state = _mm_loadu_si128((const __m128i *)(inputBlock));
+    __m128i iv    = _mm_loadu_si128((const __m128i *)(ctx->iv));
+    
+    state = _mm_xor_si128(state, iv);
     state = _mm_xor_si128(state, ctx->roundKeys[0]);
 
     for (int i = 1; i < 14; ++i)
@@ -73,35 +90,50 @@ static void AES256Encrypt(struct AES256 *ctx, void *outputBlock, const void *inp
 
     state = _mm_aesenclast_si128(state, ctx->roundKeys[14]);
     _mm_storeu_si128((__m128i_u *)(outputBlock), state);
+    _mm_storeu_si128((__m128i_u *)(ctx->iv), state);
 }
 
-static void AES256Decrypt(struct AES256 *ctx, void *outputBlock, const void *inputBlock) {
-    __m128i state = _mm_loadu_si128((const __m128i *)(inputBlock));
+static void AES256DecryptCBC(struct AES256 *ctx, void *outputBlock, const void *inputBlock) {
+    __m128i state  = _mm_loadu_si128((const __m128i *)(inputBlock));
+    __m128i iv     = _mm_loadu_si128((const __m128i *)(ctx->iv));
+    __m128i nextIv = state; 
+
     state = _mm_xor_si128(state, ctx->roundKeys[14]);
 
     for (int i = 15; i < 28; ++i)
         state = _mm_aesdec_si128(state, ctx->roundKeys[i]);
 
     state = _mm_aesdeclast_si128(state, ctx->roundKeys[0]);
+    state = _mm_xor_si128(state, iv);
+
     _mm_storeu_si128((__m128i_u *)(outputBlock), state);
+    _mm_storeu_si128((__m128i_u *)(ctx->iv), nextIv);
 }
 
 static size_t AES256EncryptMessage(struct AES256 *ctx, uint8_t *outputBlocks, const char *inputText, size_t inputLength) {
+    AES256GenerateIV(ctx);
+    memcpy(outputBlocks, ctx->iv, AES256_IV_SIZE);
+    
     size_t numBlocks = (inputLength + 15) / 16;
-    size_t totalEncryptedSize = numBlocks * 16;
+    size_t totalEncryptedSize = AES256_IV_SIZE + numBlocks * 16;
 
-    std::vector<uint8_t> paddedInput(totalEncryptedSize, 0);
+    std::vector<uint8_t> paddedInput(numBlocks * 16, 0);
     memcpy(paddedInput.data(), inputText, inputLength);
 
+    uint8_t savedIv[AES256_IV_SIZE];
+    memcpy(savedIv, ctx->iv, AES256_IV_SIZE);
+
     for (size_t i = 0; i < numBlocks; i++)
-        AES256Encrypt(ctx, outputBlocks + (i * 16), paddedInput.data() + (i * 16));
+        AES256EncryptCBC(ctx, outputBlocks + AES256_IV_SIZE + (i * 16), paddedInput.data() + (i * 16));
 
     return totalEncryptedSize;
 }
 
 static void AES256DecryptMessage(struct AES256 *ctx, uint8_t *outputText, const uint8_t *inputBlocks, size_t encryptedSize) {
+    AES256SetIV(ctx, inputBlocks);
+    
     size_t numBlocks = encryptedSize / 16;
 
     for (size_t i = 0; i < numBlocks; i++)
-        AES256Decrypt(ctx, outputText + (i * 16), inputBlocks + (i * 16));
+        AES256DecryptCBC(ctx, outputText + (i * 16), inputBlocks + AES256_IV_SIZE + (i * 16));
 }

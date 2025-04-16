@@ -32,7 +32,7 @@ bool ChatServer::start() {
         return false;
     }
 
-    int opt = true;
+    int opt = TRUE;
     if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt)) < 0) {
         std::cerr << "Error setting socket options" << std::endl;
         CLOSE_SOCKET(serverSocket);
@@ -170,10 +170,11 @@ void ChatServer::broadcastMessage(int senderSocket, const ChatMessage &msg) {
     AES256Init(&aesCtx, serverKey.data());
 
     if (!chatSessionActive) {
-        std::string waitMessage = "SYSTEM:Waiting for more users to join.";
+        std::string waitMessage = "Waiting for more users to join.";
         
         ChatMessage waitMsg;
         waitMsg.messageId = nextMessageId++;
+        waitMsg.opcode = MessageOpcode::SYSTEM_MESSAGE;
         
         size_t waitEncryptedSize = AES256EncryptMessage(&aesCtx, waitMsg.data, waitMessage.c_str(), waitMessage.length());
         waitMsg.messageLength = (waitMessage.length() << 16 | (waitEncryptedSize & 0xFFFF));
@@ -191,7 +192,7 @@ void ChatServer::broadcastMessage(int senderSocket, const ChatMessage &msg) {
 void ChatServer::broadcastUserList() {
     // This should've been an OPCODE, but due lack of time
     // we're going to keep this approach as a workaround
-    std::string userList = "USERLIST:";
+    std::string userList;
     
     {
         std::lock_guard<std::mutex> lock(clientsMutex);
@@ -202,6 +203,7 @@ void ChatServer::broadcastUserList() {
 
     ChatMessage msg;
     msg.messageId = nextMessageId++;
+    msg.opcode = MessageOpcode::USER_LIST; 
 
     AES256 aesCtx;
     AES256Init(&aesCtx, serverKey.data()); // FIXME: Remove from here;
@@ -223,10 +225,11 @@ void ChatServer::checkAndActivateSession() {
 
     chatSessionActive = true;
 
-    std::string startMessage = "SESSION_START:Chat session has started!";
+    std::string startMessage = "Chat session has started!";
 
     ChatMessage msg;
     msg.messageId = nextMessageId++;
+    msg.opcode = MessageOpcode::SESSION_START;
 
     AES256 aesCtx;
     AES256Init(&aesCtx, serverKey.data());
@@ -247,10 +250,11 @@ void ChatServer::checkAndDeactivateSession() {
     if (chatSessionActive && clients.size() < requiredClientsToStart) {
         chatSessionActive = false;
         
-        std::string interruptMessage = "SESSION_INTERRUPT:Chat session paused. Waiting for more users to join.";
+        std::string interruptMessage = "Chat session paused. Waiting for more users to join.";
         
         ChatMessage msg;
         msg.messageId = nextMessageId++;
+        msg.opcode = MessageOpcode::SESSION_INTERRUPT;
 
         AES256 aesCtx;
         AES256Init(&aesCtx, serverKey.data());
